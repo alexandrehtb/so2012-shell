@@ -1,0 +1,8 @@
+GRUPO:
+	ALEXANDRE H TOLENTINO BONICELLI		6792986
+	BRUNA TOLEDO GARCIA			6792760
+	CAIO CESAR BENATTI SILVERIO		5967752
+
+INSTRUCOES:
+	Para compilar basta chamar "make" na linha de comando. Sera gerado um 
+executavel com o nome "shell", para executa-lo deve-se chamar ./shell

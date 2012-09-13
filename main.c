@@ -81,8 +81,8 @@ void nonBuiltIn(char **argv)
 
 int main(void)
 {
-	int fd, outflag = 0;
-	char *out = NULL;
+	int fd_out, fd_in, fd_stdout, fd_stdin, outflag = 0, inflag = 0;
+	char *out = NULL, *in = NULL;
 
 	shellPrompt();
 
@@ -95,39 +95,75 @@ int main(void)
 			continue;
 		}
 
-		outflag = redirectOutput(tokens, out);
+		outflag = redirectOutput(tokens, &out); // verifica se ha redirecionamento de saida
 
 		if (outflag) {
 			// redireciona a saida
-			int i = 0;
-			while (tokens[i]) {
-				printf("%s\n", tokens[i]);
-				i++;
-			}
+			fd_stdout = dup (1);
+			close (1);
 
-			fd = open ("out.txt", O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+			if (outflag == 1)
+				fd_out = open(out, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
+			else
+				fd_out = open(out, O_CREAT | O_APPEND | O_RDWR, S_IRUSR | S_IWUSR);
 
-			if (fd < 0) {
-				fprintf(stderr, "Erro: criando arquivo para redirecionamento.\n");
+			if (fd_out < 0) {
+				fprintf(stderr, "Erro: criando arquivo para redirecionamento de saida.\n");
 				exit(EXIT_FAILURE);
 			}
 
-			close (1);
-
-			if (dup (fd) < 0) {
+			//fd_stdout = dup (1);
+			//close (1);
+/*
+			if (dup (fd_out) < 0) {
 				fprintf(stderr, "Erro: redirecionando saida.\n");
 				exit(EXIT_FAILURE);
 			}
 
-			close (fd);
+			close (fd_out);
+			*/
+		}
+
+		inflag = redirectInput(tokens, &in);
+
+		if (inflag) {
+			// redireciona a entrada
+			fd_stdin = dup (0);
+			close (0);
+
+			fd_in = open(in, O_RDONLY);
+
+			if (fd_in < 0) {
+				fprintf(stderr, "Erro: abrindo arquivo para derirecionamento de entrada.\n");
+				exit(EXIT_FAILURE);
+			}
+/*
+			close (0);
+
+			if (dup (fd_in) < 0) {
+				fprintf(stderr, "Erro: redirecionando entrada.\n");
+				exit(EXIT_FAILURE);
+			}
+
+			close (fd_in);
+			*/
 		}
 
 		if (builtInCommand(tokens) == 0)
 			nonBuiltIn(tokens);
 
+		// redireciona de volta para a saida padrao
 		if (outflag) {
-			close (1);
-			dup (open("/dev/tty", O_WRONLY));
+			close (fd_out);
+			dup (fd_stdout);
+			close (fd_stdout);
+		}
+
+		// redireciona de volta para a entrada padrao
+		if (inflag) {
+			close (fd_in);
+			dup (fd_stdin);
+			close (fd_stdin);
 		}
 
 		shellPrompt();
