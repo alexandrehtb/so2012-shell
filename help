@@ -1,0 +1,7 @@
+Sistemas Operacionais II - Shell v1.0 12/09/2012
+
+Os seguintes comandos internos estão definidos:
+
+ help		Exibe este texto
+ cd [dir]	Muda para o diretorio especificado em [dir] ou para o home caso omitido
+ exit		Sai do shell
