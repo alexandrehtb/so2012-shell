@@ -4,6 +4,20 @@
 #include <string.h>
 #include <stdlib.h>
 
+void ensure_close(int closeret) {
+	if (closeret == -1) {
+		perror("close");
+		exit(EXIT_FAILURE);
+	}
+}
+
+void ensure_dup2(int dup2ret) {
+	if (dup2ret == -1) {
+		perror("dup2");
+		exit(EXIT_FAILURE);
+	}
+}
+
 int redirectOutput (char **tokens, char **out) {
 	int i = 0;
 

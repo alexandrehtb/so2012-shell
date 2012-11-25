@@ -1,6 +1,8 @@
 #include "string.h"
 #include "builtincmd.h"
 #include "ioredirect.h"
+#include "jobs.h"
+#include "signals.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +16,11 @@
 #define TRUE 1
 #define FALSE !TRUE
 
-#define SHELL_NAME "shell"
+#define SHELL_NAME "chevron"
+
+job_node *jobs;
+const char *history[HISTORY_MAX_SIZE];
+unsigned int history_count = 0;
 
 /**
  * Exibe o prompt.
@@ -27,9 +33,25 @@ void shellPrompt(void)
 	printf("%s:%s> ", SHELL_NAME, currentDirectory);
 }
 
+/**
+ * Adiciona o ultimo comando executado ao historico de comandos.
+ */
+void add_command_to_history(const char *command) {
+	unsigned int index;
+	if (history_count < HISTORY_MAX_SIZE) {
+	        history[history_count++] = strdup( command );
+	}
+	else {
+	        free((void *) history[0]);
+	        for (index = 1; index < HISTORY_MAX_SIZE; index++)
+			history[index - 1] = history[index];
+		history[HISTORY_MAX_SIZE - 1] = strdup( command );
+		history_count++;
+	}
+}
 
 /**
- * Executa o comando expecificado por argv
+ * Executa o comando expecificado por argv.
  */
 void execute(char **argv) {
 	execvp(argv[0], argv);
@@ -60,21 +82,96 @@ void createProcess(char **argv, int fg)
 	}
 }
 
+/**
+ * De acordo com o comando executado no momento (counter) retorna o indice
+ * da proxima posicao do vetor de comando de acordo com a ordem no pipe.
+ *
+ * O vetor sempre tera 3 posicoes: o comando atual, o anterior e o proximo.
+ */
+static int crr_pipe_index(int counter)
+{
+    return counter % 2;
+}
+
+
+/**
+ * Retorna o indice anterior ao atual.
+ */
+static int prv_pipe_index(int counter)
+{
+    return crr_pipe_index(counter) == 0 ? 1 : 0;
+}
+
+
+/*
+ * Faz a syscall pipel, passando o indice do comando sendo executado.
+ */
+static void pipe2(int (*pipefd)[2], int currentindex)
+{
+    int curr = crr_pipe_index(currentindex);
+
+    if (pipe(pipefd[curr]) == -1)
+	//errexit("pipe2");
+	exit(1);
+}
 
 /**
  * Faz o parser de um comando nao built in. Verifica se ele deve ser executado
  * em foreground ou background e chama createProcess com a devida flag setada.
  */
-void nonBuiltIn(char **argv)
+void nonBuiltIn(char *cmd)
 {
-	int fg = 0;
+	char **commands = parser(cmd, "|");
+	int pipefd[2][2], i;
 	//char **argv = parser(cmd, " ");
 
-	createProcess(argv, fg);
+	for (i = 0; commands[i]; i++) {
+		pipe2(pipefd, i);
 
-	if (argv)
-		freeCommand(argv);
-	free(argv);
+		int fg;
+		char **tokens = get_tokens(commands[i], &fg);
+/*
+		createProcess(tokens, fg);
+
+		if (argv)
+			freeCommand(argv);
+		free(argv);
+*/
+		pid_t pid = fork();
+		if (pid == -1) {
+			fprintf(stderr, "\n\tErro no fork().\n\n");
+			exit(EXIT_FAILURE);
+		}
+		else if (pid == 0) {
+
+			int curr = crr_pipe_index(i), prev = prv_pipe_index(i);
+			if (commands[i + 1])
+				// Write to pipe 
+				ensure_dup2(dup2(pipefd[curr][1], STDOUT_FILENO));
+
+			if (i != 0)
+				// Read from last process' reading end
+				ensure_dup2(dup2(pipefd[prev][0], STDIN_FILENO)); 
+
+			execute(tokens);
+
+			fprintf(stderr, "\n\tComando nao reconhecido.\n\n");
+			exit(EXIT_FAILURE);
+		}
+		else {
+			setpgid(pid, 0);
+
+			jobs = add_job(jobs, make_job(pid, *tokens, running, fg)); // Adiciona a 'job' atual na lista de jobs.
+
+			// Se o processo foi iniciado em 'foreground' processo pai aguarda sua finalizacao
+			if (fg) {
+				waitpid(pid, NULL, 0);
+				ensure_close( close( pipefd[ crr_pipe_index(i) ][1] ) );
+			}
+		}
+		freeCommand(tokens);
+	}
+	freeCommand(commands);
 }
 
 
@@ -84,87 +181,22 @@ int main(void)
 	int fd_out, fd_in, fd_stdout, fd_stdin, outflag = 0, inflag = 0;
 	char *out = NULL, *in = NULL;
 
+	initializeSignals();
+
 	shellPrompt();
 
 	while(TRUE) {
 		char *cmd = readLine(stdin);
-		char **tokens = parser(cmd, " ");
+		//char **tokens = parser(cmd, " ");
 
 		if (*cmd == '\0') {
 			free(cmd);
 			continue;
 		}
 
-		outflag = redirectOutput(tokens, &out); // verifica se ha redirecionamento de saida
-
-		if (outflag) {
-			// redireciona a saida
-			fd_stdout = dup (1);
-			close (1);
-
-			if (outflag == 1)
-				fd_out = open(out, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
-			else
-				fd_out = open(out, O_CREAT | O_APPEND | O_RDWR, S_IRUSR | S_IWUSR);
-
-			if (fd_out < 0) {
-				fprintf(stderr, "Erro: criando arquivo para redirecionamento de saida.\n");
-				exit(EXIT_FAILURE);
-			}
-
-			//fd_stdout = dup (1);
-			//close (1);
-/*
-			if (dup (fd_out) < 0) {
-				fprintf(stderr, "Erro: redirecionando saida.\n");
-				exit(EXIT_FAILURE);
-			}
-
-			close (fd_out);
-			*/
-		}
-
-		inflag = redirectInput(tokens, &in);
-
-		if (inflag) {
-			// redireciona a entrada
-			fd_stdin = dup (0);
-			close (0);
-
-			fd_in = open(in, O_RDONLY);
-
-			if (fd_in < 0) {
-				fprintf(stderr, "Erro: abrindo arquivo para derirecionamento de entrada.\n");
-				exit(EXIT_FAILURE);
-			}
-/*
-			close (0);
-
-			if (dup (fd_in) < 0) {
-				fprintf(stderr, "Erro: redirecionando entrada.\n");
-				exit(EXIT_FAILURE);
-			}
-
-			close (fd_in);
-			*/
-		}
-
-		if (builtInCommand(tokens) == 0)
-			nonBuiltIn(tokens);
-
-		// redireciona de volta para a saida padrao
-		if (outflag) {
-			close (fd_out);
-			dup (fd_stdout);
-			close (fd_stdout);
-		}
-
-		// redireciona de volta para a entrada padrao
-		if (inflag) {
-			close (fd_in);
-			dup (fd_stdin);
-			close (fd_stdin);
-		}
+		add_command_to_history(cmd);
+		if (builtInCommand(cmd) == 0)
+			nonBuiltIn(cmd);
 
 		shellPrompt();
 		free(cmd);
@@ -172,3 +204,4 @@ int main(void)
 
 	return 0; 
 }
+

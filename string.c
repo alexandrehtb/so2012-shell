@@ -11,17 +11,21 @@
  * Libera memoria ocupada por argumentos de um dado
  * comando.
  */
+
 void freeCommand(char **argv) {
 	int i;
 
 	for (i = 0; argv[i]; i++)
 		free(argv[i]);
+
+	free(argv);
 }
 
 
 /**
  * Conta o numero de comandos de um array.
  */
+
 int commandLength(char **buffer) {
 	int i;
 
@@ -34,6 +38,7 @@ int commandLength(char **buffer) {
 /**
  * Le uma linha de comando da entrada especificada por stream.
  */
+
 char *readLine(FILE *stream)
 {
 	char *ret = (char *) malloc(LINE_LENGTH);
@@ -57,6 +62,7 @@ char *readLine(FILE *stream)
  * Divide uma string em tokens de acordo com o separador especificado.
  * Retorna um ponteiro para a lista de tokens.
  */
+
 char **parser(char *string, char *sep) {
 	char **argv = (char **) malloc(((strlen(string) /2 ) + 2) * sizeof (char *)),
 		 *token = strtok(string, sep);
@@ -72,3 +78,26 @@ char **parser(char *string, char *sep) {
 	argv[i] = NULL;
 	return (char **) realloc(argv, (i + 1) * sizeof (char *));
 }
+
+
+/**
+ * Faz chamada a funcao **parser(char *string, char *sep) passando o separados
+ * 'espaco' como parametro, que por sua vez fara o parser da string e seta a flag
+ * 'fg' de acordo com o comando recebido.
+ */
+
+char **get_tokens(char *cmd, int *fg) {	
+	char **tokens = NULL;
+
+	if (*cmd == '&') {
+		*fg = 0;
+		tokens = parser(cmd + 2, " ");
+	}
+	else {
+		*fg = 1;
+		tokens = parser(cmd, " ");
+	}
+
+	return tokens;
+}
+
